@@ -1,7 +1,6 @@
 APScheduler==3.5.3
 certifi==2018.11.29
 chardet==3.0.4
-flake8==3.6.0
 idna==2.7
 mccabe==0.6.1
 pycodestyle==2.4.0
