@@ -4,6 +4,10 @@ import requests
 import smtplib
 import ssl
 
+from apscheduler.schedulers.blocking import BlockingScheduler
+
+sched = BlockingScheduler()
+
 
 def email_jobs(jobs, receivers):
 
@@ -11,14 +15,16 @@ def email_jobs(jobs, receivers):
 
     for job in jobs:
 
-        company = job['company']
-        position = job['position']
-        tags = job['tags']
-        url = job['url']
+        company = job["company"]
+        position = job["position"]
+        tags = job["tags"]
+        url = job["url"]
 
-        listings.append(f'Company: {company}\nPosition: {position}\nTags: {tags}\nURL: {url}')
+        listings.append(
+            f"Company: {company}\nPosition: {position}\nTags: {tags}\nURL: {url}"
+        )
 
-    message = 'Subject: Remote Job Listings\n' + '\n\n'.join(listings)
+    message = "Subject: Remote Job Listings\n" + "\n\n".join(listings)
 
     import getpass
 
@@ -40,21 +46,21 @@ def email_jobs(jobs, receivers):
 
 def filter_by_tags(jobs, tags):
 
-    return [job for job in jobs if not set(tags).isdisjoint(job['tags'])]
+    return [job for job in jobs if not set(tags).isdisjoint(job["tags"])]
 
 
 def filter_by_date(jobs, date):
 
     from datetime import datetime
 
-    date_mask = '%Y-%m-%d'
+    date_mask = "%Y-%m-%d"
     cutoff_date = datetime.strptime(date, date_mask)
 
     filtered_jobs = []
 
     for job in jobs:
 
-        job_date = datetime.strptime(job['date'].split('T')[0], date_mask)
+        job_date = datetime.strptime(job["date"].split("T")[0], date_mask)
 
         if job_date > cutoff_date:
 
@@ -63,44 +69,60 @@ def filter_by_date(jobs, date):
     return filtered_jobs
 
 
-def remote_jobs(tags=None):
+def get_remote_jobs():
 
-    r = requests.get('https://remoteok.io/api?ref=producthunt')
+    r = requests.get("https://remoteok.io/api?ref=producthunt")
 
     return r.json()[1:]
 
 
-if __name__ == '__main__':
+def remote_jobs(args):
+    @sched.scheduled_job("interval", minutes=args.interval)
+    def _():
+
+        print("Fetching remote job listings...")
+        jobs = get_remote_jobs()
+        print(f"Received {len(jobs)} remote job listings.")
+
+        if args.tags:
+
+            print(f"Filtering jobs by tags: {args.tags}")
+            jobs = filter_by_tags(jobs, args.tags)
+            print(f"{len(jobs)} jobs match the filter.")
+
+        if args.date:
+
+            print(f"Filtering jobs by date: {args.date}")
+            jobs = filter_by_date(jobs, args.date)
+            print(f"{len(jobs)} jobs match the filter.")
+
+        if args.emails:
+
+            email_jobs(jobs, args.emails)
+
+        if args.output:
+
+            print(json.dumps(jobs, indent=4))
+
+    return _
+
+
+if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-t", "--tags", nargs='+', help="search by tags")
+    parser.add_argument("-t", "--tags", nargs="+", help="search by tags")
     parser.add_argument("-d", "--date", type=str, help="search by date")
-    parser.add_argument("-e", "--emails", nargs='+', help="receiver emails")
-    parser.add_argument("--output", dest="output", action="store_true", help="dump output to JSON")
+    parser.add_argument("-e", "--emails", nargs="+", help="receiver emails")
+    parser.add_argument(
+        "--output", dest="output", action="store_true", help="dump output to JSON"
+    )
+    parser.add_argument(
+        "-i", "--interval", type=int, help="interval in minutes to invoke"
+    )
 
     args = parser.parse_args()
 
-    print('Fetching remote job listings...')
-    jobs = remote_jobs()
-    print(f'Received {len(jobs)} remote job listings.')
+    rj = remote_jobs(args)
 
-    if args.tags:
-
-        print(f'Filtering jobs by tags: {args.tags}')
-        jobs = filter_by_tags(jobs, args.tags)
-        print(f'{len(jobs)} jobs match the filter.')
-
-    if args.date:
-
-        print(f'Filtering jobs by date: {args.date}')
-        jobs = filter_by_date(jobs, args.date)
-        print(f'{len(jobs)} jobs match the filter.')
-
-    if args.emails:
-
-        email_jobs(jobs, args.emails)
-
-    if args.output:
-
-        print(json.dumps(jobs, indent=4))
+sched.start()
